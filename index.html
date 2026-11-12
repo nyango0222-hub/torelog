@@ -104,14 +104,17 @@ nav button span{display:block;font-size:19px;line-height:1.2}
 <script>
 // ---- 種目の初期リスト -------------------------------------------------
 const CARDIO = "有酸素運動";
-const PARTS = ["胸","背中","脚","肩","腹筋",CARDIO];
+const BW = "自重トレーニング";
+const MIN_PARTS = [CARDIO, BW];
+const PARTS = ["胸","背中","脚","肩","腹筋",CARDIO,BW];
 const DEFAULTS = {
   "胸":["ペクトラベル","ベンチプレス","ペックフライ","チェストプレス","スミスマシン・インクラインベンチプレス","ケーブルクロス","ディップス","ダンベルフライ","ダンベルプレス","インクラインダンベルプレス"],
   "背中":["リバースフライ","ラットマシン","プーリーロウ","バーティカルトラクション","デッドリフト","ラットプルダウン","プーリーロー","チンニング（懸垂）","ベントーオーバーロー"],
   "脚":["カーフレイズ","レッグカール","レッグエクステンション","アブダクター","アダクター","プローンレッグカール","スクワット","スミスマシン・バーベルスクワット","レッグプレス"],
   "肩":["サイドレイズ","ショルダープレス"],
   "腹筋":["ロータリートーソー","アブドミナル"],
-  "有酸素運動":["ウォーキング　6kg 傾斜3%"]
+  "有酸素運動":["ウォーキング　6kg 傾斜3%"],
+  "自重トレーニング":["自重トレーニング"]
 };
 
 // ---- 保存 -------------------------------------------------------------
@@ -123,6 +126,8 @@ function load(){
   return {exercises:ex, nextId:id, days:{}, dirty:{}, gasUrl:"", token:""};
 }
 let S = load();
+// 既存データに自重トレーニング（分で記録する種目）がなければ追加する
+if(!S.exercises.some(e => e.part === BW)){ S.exercises.push({id:S.nextId++, part:BW, name:BW}); save(); }
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
 
 // ---- 小道具 -----------------------------------------------------------
@@ -145,11 +150,11 @@ const agoTxt = d => { if(!d) return ""; const n = daysAgo(d); return n <= 0 ? "�
 const sortedDates = () => Object.keys(S.days).sort();
 
 function stat(day){
-  const o = {ex:0, sets:0, reps:0, vol:0, min:0};
+  const o = {ex:0, sets:0, reps:0, vol:0, min:0, bw:0};
   if(!day) return o;
   day.items.forEach(it => {
     o.ex++;
-    if(isCardio(it)) o.min += num(it.min);
+    if(isCardio(it)){ const e = exOf(it.id); if(e && e.part === BW) o.bw += num(it.min); else o.min += num(it.min); }
     else it.sets.forEach(s => { const w = num(s.w), r = num(s.r); if(r > 0){ o.sets++; o.reps += r; o.vol += w*r; } });
   });
   return o;
@@ -237,7 +242,7 @@ function vHome(){
       const e = exOf(it.id) || {name:"（削除済み）"};
       return "<li><span>"+esc(e.name)+"</span><span>"+(isCardio(it) ? fmt(num(it.min))+"分" : (fmtSets(it.sets) || "—"))+"</span></li>";
     }).join("") + (day.sauna ? "<li><span>♨ サウナ</span><span>入った</span></li>" : "") + "</ul>";
-    body += '<p class="note">'+st.sets+"セット ／ "+st.reps+"レップ ／ 負荷量 "+fmt(st.vol)+"kg"+(st.min ? " ／ 有酸素 "+fmt(st.min)+"分" : "")+"</p>";
+    body += '<p class="note">'+st.sets+"セット ／ "+st.reps+"レップ ／ 負荷量 "+fmt(st.vol)+"kg"+(st.min ? " ／ 有酸素 "+fmt(st.min)+"分" : "")+(st.bw ? " ／ 自重 "+fmt(st.bw)+"分" : "")+"</p>";
   }
   return '<header class="bar"><h1>トレログ</h1><span class="sync" id="sync">'+esc(V.syncMsg)+"</span></header>"
     + '<section class="card"><div class="ch"><button class="ib" data-a="mon" data-n="-1">‹</button><h2 style="text-align:center">'+y+"年"+(mo+1)+'月</h2><button class="ib" data-a="mon" data-n="1">›</button></div><div class="cal">'+cells+"</div></section>"
@@ -303,7 +308,7 @@ function vHist(){
     h += '<section class="card">' + ds.slice(0, V.more).map(d => {
       const day = S.days[d], st = stat(day), parts = [];
       day.items.forEach(it => { const e = exOf(it.id); if(e && parts.indexOf(e.part) < 0) parts.push(e.part); });
-      const right = [st.sets ? fmt(st.vol)+"kg" : "", st.min ? fmt(st.min)+"分" : "", day.sauna ? "♨" : ""].filter(Boolean).join(" ") + (st.sets ? "<small>"+st.sets+"セット・"+st.reps+"回</small>" : "");
+      const right = [st.sets ? fmt(st.vol)+"kg" : "", st.min ? fmt(st.min)+"分" : "", st.bw ? "自重"+fmt(st.bw)+"分" : "", day.sauna ? "♨" : ""].filter(Boolean).join(" ") + (st.sets ? "<small>"+st.sets+"セット・"+st.reps+"回</small>" : "");
       return '<button class="hl" data-a="sel" data-d="'+d+'" data-open="1"><strong>'+d.slice(2).replace(/-/g,"/")+"</strong><span>"+esc(parts.join("・") || "サウナのみ")+"</span><em>"+right+"</em></button>";
     }).join("") + "</section>";
     if(ds.length > V.more) h += '<div class="btns" style="justify-content:center"><button class="ghost" data-a="more">もっと見る</button></div>';
@@ -317,9 +322,9 @@ function vHist(){
     const v = isCardio(it) ? num(it.min) : Math.max(0, ...it.sets.map(s => rm(num(s.w), num(s.r))));
     pts.push({d:d, v:v, t:setLines(it), reps:repsOf(it)});
   });
-  const unit = e.part === CARDIO ? "分" : "kg（推定RM）";
+  const unit = MIN_PARTS.indexOf(e.part) >= 0 ? "分" : "kg（推定RM）";
   h += '<section class="card"><label class="fld">種目<select data-f="hex">'+ids.map(id => { const x = exOf(id); return '<option value="'+id+'"'+(id === V.hex ? " selected" : "")+">"+esc(x.part+"｜"+x.name)+"</option>"; }).join("")+"</select></label>"+chart(pts, unit)+"</section>";
-  h += '<section class="card">' + pts.slice().reverse().slice(0, 60).map(p => '<div class="hl top"><strong>'+p.d.slice(2).replace(/-/g,"/")+"</strong><span>"+p.t+"</span><em>"+(e.part === CARDIO ? "" : "計"+p.reps+"回<small>RM "+fmt(p.v)+"</small>")+"</em></div>").join("") + "</section>";
+  h += '<section class="card">' + pts.slice().reverse().slice(0, 60).map(p => '<div class="hl top"><strong>'+p.d.slice(2).replace(/-/g,"/")+"</strong><span>"+p.t+"</span><em>"+(e.part === CARDIO || e.part === BW ? "" : "計"+p.reps+"回<small>RM "+fmt(p.v)+"</small>")+"</em></div>").join("") + "</section>";
   return h;
 }
 function chart(pts, unit){
@@ -372,7 +377,7 @@ const A = {
   more(){ V.more += 40; render(); },
   choose(d){
     const id = Number(d.id), e = exOf(id), day = getDay(V.sel), pv = prevOf(id, V.sel);
-    if(e.part === CARDIO) day.items.push({id:id, min:""});
+    if(MIN_PARTS.indexOf(e.part) >= 0) day.items.push({id:id, min:""});
     else { const p = pv && !isCardio(pv.it) && pv.it.sets[0]; day.items.push({id:id, sets:[p ? {w:p.w, r:p.r} : {w:"", r:""}]}); }
     touch(V.sel); go("day"); window.scrollTo(0, document.body.scrollHeight);
   },
